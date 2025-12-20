@@ -1,9 +1,10 @@
 import os
 import random
 import struct
+import sys
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPalette, QColor
 from PySide6.QtWidgets import (
 	QApplication,
 	QButtonGroup,
@@ -357,6 +358,21 @@ class SubsampleWorker(QObject):
 		return result
 
 
+def is_dark_mode():
+	"""Detect if the system is using dark mode (Windows-specific)."""
+	if sys.platform == 'win32':
+		try:
+			import winreg
+			registry = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+			key = winreg.OpenKey(registry, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+			value, _ = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+			winreg.CloseKey(key)
+			return value == 0  # 0 means dark mode, 1 means light mode
+		except Exception:
+			return False
+	return False
+
+
 class RaySubsamplerWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
@@ -399,7 +415,6 @@ class RaySubsamplerWindow(QMainWindow):
 		# File row
 		file_row = QHBoxLayout()
 		self.file_label = QLabel("No file loaded")
-		self.file_label.setStyleSheet("color: #666;")
 		btn_browse = QPushButton("Load File…")
 		btn_browse.clicked.connect(self.on_browse)
 		self.btn_convert = QPushButton("Convert .dat → .txt…")
@@ -463,25 +478,225 @@ class RaySubsamplerWindow(QMainWindow):
 		root_layout.addWidget(self.progress)
 		root_layout.addWidget(self.status_label)
 
-		# Styling
-		self.setStyleSheet(
-			"""
-			QMainWindow { background: #fafafa; }
-			QGroupBox { border: 1px solid #e0e0e0; border-radius: 6px; margin-top: 12px; }
-			QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #333; }
-			QPushButton { padding: 6px 12px; }
-			QLineEdit { padding: 6px 8px; }
-			QLabel { color: #333; }
-			QProgressBar { height: 12px; border: 1px solid #e0e0e0; border-radius: 6px; }
-			QProgressBar::chunk { background-color: #2d7ff9; border-radius: 6px; }
-			"""
-		)
+		# Styling - detect and apply appropriate theme
+		self._apply_theme()
 
 	def _divider(self):
 		line = QFrame()
 		line.setFrameShape(QFrame.HLine)
 		line.setFrameShadow(QFrame.Sunken)
 		return line
+
+	def _apply_theme(self):
+		"""Apply theme-appropriate styling based on system theme detection."""
+		dark = is_dark_mode()
+
+		if dark:
+			# Dark theme colors
+			bg_main = "#1e1e1e"
+			bg_widget = "#2d2d2d"
+			text_primary = "#e0e0e0"
+			text_secondary = "#a0a0a0"
+			border_color = "#3e3e3e"
+			accent_color = "#4a9eff"
+
+			self.setStyleSheet(f"""
+				QMainWindow {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QWidget {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QGroupBox {{
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					margin-top: 12px;
+					background: {bg_widget};
+					color: {text_primary};
+				}}
+				QGroupBox::title {{
+					subcontrol-origin: margin;
+					left: 8px;
+					padding: 0 4px;
+					color: {text_primary};
+				}}
+				QPushButton {{
+					padding: 6px 12px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QPushButton:hover {{
+					background: #3a3a3a;
+					border-color: #505050;
+				}}
+				QPushButton:pressed {{
+					background: #252525;
+				}}
+				QPushButton:disabled {{
+					background: #2a2a2a;
+					color: #666666;
+				}}
+				QLineEdit {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QLineEdit:focus {{
+					border-color: {accent_color};
+				}}
+				QLabel {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QRadioButton {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QRadioButton::indicator {{
+					width: 13px;
+					height: 13px;
+				}}
+				QComboBox {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QComboBox:hover {{
+					border-color: #505050;
+				}}
+				QComboBox::drop-down {{
+					border: none;
+				}}
+				QComboBox QAbstractItemView {{
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					selection-background-color: {accent_color};
+					color: {text_primary};
+				}}
+				QProgressBar {{
+					height: 12px;
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					background: {bg_widget};
+					text-align: center;
+					color: {text_primary};
+				}}
+				QProgressBar::chunk {{
+					background-color: {accent_color};
+					border-radius: 6px;
+				}}
+			""")
+			# Set file label text color for "No file loaded" state
+			self.file_label.setStyleSheet(f"color: {text_secondary};")
+		else:
+			# Light theme colors
+			bg_main = "#fafafa"
+			bg_widget = "#ffffff"
+			text_primary = "#333333"
+			text_secondary = "#666666"
+			border_color = "#e0e0e0"
+			accent_color = "#2d7ff9"
+
+			self.setStyleSheet(f"""
+				QMainWindow {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QWidget {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QGroupBox {{
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					margin-top: 12px;
+					background: {bg_widget};
+					color: {text_primary};
+				}}
+				QGroupBox::title {{
+					subcontrol-origin: margin;
+					left: 8px;
+					padding: 0 4px;
+					color: {text_primary};
+				}}
+				QPushButton {{
+					padding: 6px 12px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QPushButton:hover {{
+					background: #f0f0f0;
+					border-color: #d0d0d0;
+				}}
+				QPushButton:pressed {{
+					background: #e8e8e8;
+				}}
+				QPushButton:disabled {{
+					background: #f5f5f5;
+					color: #999999;
+				}}
+				QLineEdit {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QLineEdit:focus {{
+					border-color: {accent_color};
+				}}
+				QLabel {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QRadioButton {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QComboBox {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QComboBox:hover {{
+					border-color: #d0d0d0;
+				}}
+				QComboBox::drop-down {{
+					border: none;
+				}}
+				QComboBox QAbstractItemView {{
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					selection-background-color: {accent_color};
+					color: {text_primary};
+				}}
+				QProgressBar {{
+					height: 12px;
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					background: {bg_widget};
+					text-align: center;
+					color: {text_primary};
+				}}
+				QProgressBar::chunk {{
+					background-color: {accent_color};
+					border-radius: 6px;
+				}}
+			""")
+			# Set file label text color for "No file loaded" state
+			self.file_label.setStyleSheet(f"color: {text_secondary};")
 
 	def on_browse(self):
 		fname, _ = QFileDialog.getOpenFileName(self, "Select Ray File", os.getcwd(), "Text files (*.txt);;DAT files (*.dat)")
