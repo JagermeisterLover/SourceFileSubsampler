@@ -1,9 +1,10 @@
 import os
 import random
 import struct
+import sys
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPalette, QColor
 from PySide6.QtWidgets import (
 	QApplication,
 	QButtonGroup,
@@ -357,6 +358,21 @@ class SubsampleWorker(QObject):
 		return result
 
 
+def is_dark_mode():
+	"""Detect if the system is using dark mode (Windows-specific)."""
+	if sys.platform == 'win32':
+		try:
+			import winreg
+			registry = winreg.ConnectRegistry(None, winreg.HKEY_CURRENT_USER)
+			key = winreg.OpenKey(registry, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+			value, _ = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+			winreg.CloseKey(key)
+			return value == 0  # 0 means dark mode, 1 means light mode
+		except Exception:
+			return False
+	return False
+
+
 class RaySubsamplerWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
@@ -386,7 +402,7 @@ class RaySubsamplerWindow(QMainWindow):
 		steps_layout = QVBoxLayout(steps)
 		steps_layout.setSpacing(4)
 		steps_labels = [
-			"1. Load an ASCII .txt ray file (not .dat)",
+			"1. Load a ray file (.txt or .dat - .dat will auto-convert)",
 			"2. Enter target ray count",
 			"3. Choose output format (.txt or .dat)",
 			"4. Click Process and Save",
@@ -399,14 +415,10 @@ class RaySubsamplerWindow(QMainWindow):
 		# File row
 		file_row = QHBoxLayout()
 		self.file_label = QLabel("No file loaded")
-		self.file_label.setStyleSheet("color: #666;")
 		btn_browse = QPushButton("Load File…")
 		btn_browse.clicked.connect(self.on_browse)
-		self.btn_convert = QPushButton("Convert .dat → .txt…")
-		self.btn_convert.clicked.connect(self.on_convert)
 		file_row.addWidget(self.file_label, 1)
 		file_row.addWidget(btn_browse, 0)
-		file_row.addWidget(self.btn_convert, 0)
 		root_layout.addLayout(file_row)
 
 		# Ray count display
@@ -463,19 +475,8 @@ class RaySubsamplerWindow(QMainWindow):
 		root_layout.addWidget(self.progress)
 		root_layout.addWidget(self.status_label)
 
-		# Styling
-		self.setStyleSheet(
-			"""
-			QMainWindow { background: #fafafa; }
-			QGroupBox { border: 1px solid #e0e0e0; border-radius: 6px; margin-top: 12px; }
-			QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; color: #333; }
-			QPushButton { padding: 6px 12px; }
-			QLineEdit { padding: 6px 8px; }
-			QLabel { color: #333; }
-			QProgressBar { height: 12px; border: 1px solid #e0e0e0; border-radius: 6px; }
-			QProgressBar::chunk { background-color: #2d7ff9; border-radius: 6px; }
-			"""
-		)
+		# Styling - detect and apply appropriate theme
+		self._apply_theme()
 
 	def _divider(self):
 		line = QFrame()
@@ -483,17 +484,264 @@ class RaySubsamplerWindow(QMainWindow):
 		line.setFrameShadow(QFrame.Sunken)
 		return line
 
+	def _apply_theme(self):
+		"""Apply theme-appropriate styling based on system theme detection."""
+		dark = is_dark_mode()
+
+		if dark:
+			# Dark theme colors
+			bg_main = "#1e1e1e"
+			bg_widget = "#2d2d2d"
+			text_primary = "#e0e0e0"
+			text_secondary = "#a0a0a0"
+			border_color = "#3e3e3e"
+			accent_color = "#4a9eff"
+
+			self.setStyleSheet(f"""
+				QMainWindow {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QWidget {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QGroupBox {{
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					margin-top: 12px;
+					background: {bg_widget};
+					color: {text_primary};
+				}}
+				QGroupBox::title {{
+					subcontrol-origin: margin;
+					left: 8px;
+					padding: 0 4px;
+					color: {text_primary};
+				}}
+				QPushButton {{
+					padding: 6px 12px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QPushButton:hover {{
+					background: #3a3a3a;
+					border-color: #505050;
+				}}
+				QPushButton:pressed {{
+					background: #252525;
+				}}
+				QPushButton:disabled {{
+					background: #2a2a2a;
+					color: #666666;
+				}}
+				QLineEdit {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QLineEdit:focus {{
+					border-color: {accent_color};
+				}}
+				QLabel {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QRadioButton {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QRadioButton::indicator {{
+					width: 13px;
+					height: 13px;
+				}}
+				QComboBox {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QComboBox:hover {{
+					border-color: #505050;
+				}}
+				QComboBox::drop-down {{
+					border: none;
+				}}
+				QComboBox QAbstractItemView {{
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					selection-background-color: {accent_color};
+					color: {text_primary};
+				}}
+				QProgressBar {{
+					height: 12px;
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					background: {bg_widget};
+					text-align: center;
+					color: {text_primary};
+				}}
+				QProgressBar::chunk {{
+					background-color: {accent_color};
+					border-radius: 6px;
+				}}
+			""")
+			# Set file label text color for "No file loaded" state
+			self.file_label.setStyleSheet(f"color: {text_secondary};")
+		else:
+			# Light theme colors
+			bg_main = "#fafafa"
+			bg_widget = "#ffffff"
+			text_primary = "#333333"
+			text_secondary = "#666666"
+			border_color = "#e0e0e0"
+			accent_color = "#2d7ff9"
+
+			self.setStyleSheet(f"""
+				QMainWindow {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QWidget {{
+					background: {bg_main};
+					color: {text_primary};
+				}}
+				QGroupBox {{
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					margin-top: 12px;
+					background: {bg_widget};
+					color: {text_primary};
+				}}
+				QGroupBox::title {{
+					subcontrol-origin: margin;
+					left: 8px;
+					padding: 0 4px;
+					color: {text_primary};
+				}}
+				QPushButton {{
+					padding: 6px 12px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QPushButton:hover {{
+					background: #f0f0f0;
+					border-color: #d0d0d0;
+				}}
+				QPushButton:pressed {{
+					background: #e8e8e8;
+				}}
+				QPushButton:disabled {{
+					background: #f5f5f5;
+					color: #999999;
+				}}
+				QLineEdit {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QLineEdit:focus {{
+					border-color: {accent_color};
+				}}
+				QLabel {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QRadioButton {{
+					color: {text_primary};
+					background: transparent;
+				}}
+				QComboBox {{
+					padding: 6px 8px;
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					border-radius: 4px;
+					color: {text_primary};
+				}}
+				QComboBox:hover {{
+					border-color: #d0d0d0;
+				}}
+				QComboBox::drop-down {{
+					border: none;
+				}}
+				QComboBox QAbstractItemView {{
+					background: {bg_widget};
+					border: 1px solid {border_color};
+					selection-background-color: {accent_color};
+					color: {text_primary};
+				}}
+				QProgressBar {{
+					height: 12px;
+					border: 1px solid {border_color};
+					border-radius: 6px;
+					background: {bg_widget};
+					text-align: center;
+					color: {text_primary};
+				}}
+				QProgressBar::chunk {{
+					background-color: {accent_color};
+					border-radius: 6px;
+				}}
+			""")
+			# Set file label text color for "No file loaded" state
+			self.file_label.setStyleSheet(f"color: {text_secondary};")
+
 	def on_browse(self):
-		fname, _ = QFileDialog.getOpenFileName(self, "Select Ray File", os.getcwd(), "Text files (*.txt);;DAT files (*.dat)")
+		fname, _ = QFileDialog.getOpenFileName(self, "Select Ray File", os.getcwd(), "Ray files (*.txt *.dat);;Text files (*.txt);;DAT files (*.dat)")
 		if not fname:
 			return
+
+		# If .dat file, automatically convert it
+		if fname.lower().endswith('.dat'):
+			# Generate output filename in same directory
+			base_name = os.path.splitext(fname)[0]
+			outfile = f"{base_name}_converted.txt"
+
+			# Ask user if they want to proceed with conversion
+			reply = QMessageBox.question(
+				self,
+				"Convert Binary File",
+				f"This is a binary .dat file. It will be converted to:\n{outfile}\n\nProceed?",
+				QMessageBox.Yes | QMessageBox.No
+			)
+			if reply == QMessageBox.No:
+				return
+
+			self.file_label.setText(f"Converting {os.path.basename(fname)}...")
+			self.ray_count_label.setText("Ray count: Converting...")
+			self.btn_process.setEnabled(False)
+			self.progress.setValue(0)
+			self.status_label.setText("")
+
+			# Use a dedicated thread for conversion
+			self.convert_thread = QThread()
+			self.convert_worker = DatToTxtWorker(fname, outfile)
+			self.convert_worker.moveToThread(self.convert_thread)
+			self.convert_thread.started.connect(self.convert_worker.run)
+			self.convert_worker.progress_changed.connect(self.progress.setValue)
+			self.convert_worker.status_changed.connect(self.status_label.setText)
+			self.convert_worker.finished.connect(self._after_convert_success)
+			self.convert_worker.error.connect(self.on_error)
+			self.convert_worker.finished.connect(self.convert_thread.quit)
+			self.convert_worker.error.connect(self.convert_thread.quit)
+			self.convert_thread.finished.connect(self.convert_worker.deleteLater)
+			self.convert_thread.finished.connect(self.convert_thread.deleteLater)
+			self.convert_thread.finished.connect(lambda: self.btn_process.setEnabled(True))
+			self.convert_thread.start()
+			return
+
+		# Load .txt file directly
 		self.input_file = fname
 		self.file_label.setText(os.path.basename(fname))
-
-		if fname.lower().endswith('.dat'):
-			QMessageBox.information(self, "Info", "Binary .dat loaded. You can convert it to ASCII .txt using the 'Convert .dat → .txt…' button.")
-			self.ray_count_label.setText("Ray count: N/A (Binary file)")
-			return
 
 		try:
 			with open(fname, 'r') as f:
@@ -507,42 +755,8 @@ class RaySubsamplerWindow(QMainWindow):
 			QMessageBox.critical(self, "Error", f"Failed to scan file: {e}")
 			self.ray_count = None
 
-	def on_convert(self):
-		if not self.input_file or not self.input_file.lower().endswith('.dat'):
-			QMessageBox.information(self, "Info", "Load a .dat file first to convert.")
-			return
-
-		outfile, _ = QFileDialog.getSaveFileName(self, "Save ASCII .txt", os.getcwd(), "Text files (*.txt)")
-		if not outfile:
-			return
-		if not outfile.lower().endswith('.txt'):
-			outfile = f"{outfile}.txt"
-
-		self.btn_convert.setEnabled(False)
-		self.btn_process.setEnabled(False)
-		self.progress.setValue(0)
-		self.status_label.setText("")
-
-		# Use a dedicated thread for conversion to avoid cross-thread reuse
-		self.convert_thread = QThread()
-		self.convert_worker = DatToTxtWorker(self.input_file, outfile)
-		self.convert_worker.moveToThread(self.convert_thread)
-		self.convert_thread.started.connect(self.convert_worker.run)
-		self.convert_worker.progress_changed.connect(self.progress.setValue)
-		self.convert_worker.status_changed.connect(self.status_label.setText)
-		self.convert_worker.finished.connect(self._after_convert_success)
-		self.convert_worker.error.connect(self.on_error)
-		# Clean shutdown and cleanup
-		self.convert_worker.finished.connect(self.convert_thread.quit)
-		self.convert_worker.error.connect(self.convert_thread.quit)
-		self.convert_thread.finished.connect(self.convert_worker.deleteLater)
-		self.convert_thread.finished.connect(self.convert_thread.deleteLater)
-		self.convert_thread.finished.connect(lambda: (self.btn_convert.setEnabled(True), self.btn_process.setEnabled(True)))
-		self.convert_thread.start()
-
 	def _after_convert_success(self, path):
-		QMessageBox.information(self, "Converted", f".dat converted to ASCII:\n{path}\n\nIt is now loaded for subsampling.")
-		# Load the new txt as input and rescan
+		# Load the converted txt as input and rescan
 		self.input_file = path
 		self.file_label.setText(os.path.basename(path))
 		try:
@@ -553,8 +767,9 @@ class RaySubsamplerWindow(QMainWindow):
 			ray_lines = [line for line in lines[header_index + 1:] if len(line.split()) == 7]
 			self.ray_count = len(ray_lines)
 			self.ray_count_label.setText(f"Ray count: {self.ray_count}")
+			QMessageBox.information(self, "Conversion Complete", f"File converted and loaded successfully!\n\nRay count: {self.ray_count}")
 		except Exception as e:
-			QMessageBox.warning(self, "Warning", f"Loaded converted file, but scan failed: {e}")
+			QMessageBox.warning(self, "Warning", f"File converted but scan failed: {e}")
 
 	def on_process(self):
 		if not self.input_file or not os.path.exists(self.input_file):
