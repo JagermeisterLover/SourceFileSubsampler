@@ -402,7 +402,7 @@ class RaySubsamplerWindow(QMainWindow):
 		steps_layout = QVBoxLayout(steps)
 		steps_layout.setSpacing(4)
 		steps_labels = [
-			"1. Load an ASCII .txt ray file (not .dat)",
+			"1. Load a ray file (.txt or .dat - .dat will auto-convert)",
 			"2. Enter target ray count",
 			"3. Choose output format (.txt or .dat)",
 			"4. Click Process and Save",
@@ -417,11 +417,8 @@ class RaySubsamplerWindow(QMainWindow):
 		self.file_label = QLabel("No file loaded")
 		btn_browse = QPushButton("Load File…")
 		btn_browse.clicked.connect(self.on_browse)
-		self.btn_convert = QPushButton("Convert .dat → .txt…")
-		self.btn_convert.clicked.connect(self.on_convert)
 		file_row.addWidget(self.file_label, 1)
 		file_row.addWidget(btn_browse, 0)
-		file_row.addWidget(self.btn_convert, 0)
 		root_layout.addLayout(file_row)
 
 		# Ray count display
@@ -699,16 +696,52 @@ class RaySubsamplerWindow(QMainWindow):
 			self.file_label.setStyleSheet(f"color: {text_secondary};")
 
 	def on_browse(self):
-		fname, _ = QFileDialog.getOpenFileName(self, "Select Ray File", os.getcwd(), "Text files (*.txt);;DAT files (*.dat)")
+		fname, _ = QFileDialog.getOpenFileName(self, "Select Ray File", os.getcwd(), "Ray files (*.txt *.dat);;Text files (*.txt);;DAT files (*.dat)")
 		if not fname:
 			return
+
+		# If .dat file, automatically convert it
+		if fname.lower().endswith('.dat'):
+			# Generate output filename in same directory
+			base_name = os.path.splitext(fname)[0]
+			outfile = f"{base_name}_converted.txt"
+
+			# Ask user if they want to proceed with conversion
+			reply = QMessageBox.question(
+				self,
+				"Convert Binary File",
+				f"This is a binary .dat file. It will be converted to:\n{outfile}\n\nProceed?",
+				QMessageBox.Yes | QMessageBox.No
+			)
+			if reply == QMessageBox.No:
+				return
+
+			self.file_label.setText(f"Converting {os.path.basename(fname)}...")
+			self.ray_count_label.setText("Ray count: Converting...")
+			self.btn_process.setEnabled(False)
+			self.progress.setValue(0)
+			self.status_label.setText("")
+
+			# Use a dedicated thread for conversion
+			self.convert_thread = QThread()
+			self.convert_worker = DatToTxtWorker(fname, outfile)
+			self.convert_worker.moveToThread(self.convert_thread)
+			self.convert_thread.started.connect(self.convert_worker.run)
+			self.convert_worker.progress_changed.connect(self.progress.setValue)
+			self.convert_worker.status_changed.connect(self.status_label.setText)
+			self.convert_worker.finished.connect(self._after_convert_success)
+			self.convert_worker.error.connect(self.on_error)
+			self.convert_worker.finished.connect(self.convert_thread.quit)
+			self.convert_worker.error.connect(self.convert_thread.quit)
+			self.convert_thread.finished.connect(self.convert_worker.deleteLater)
+			self.convert_thread.finished.connect(self.convert_thread.deleteLater)
+			self.convert_thread.finished.connect(lambda: self.btn_process.setEnabled(True))
+			self.convert_thread.start()
+			return
+
+		# Load .txt file directly
 		self.input_file = fname
 		self.file_label.setText(os.path.basename(fname))
-
-		if fname.lower().endswith('.dat'):
-			QMessageBox.information(self, "Info", "Binary .dat loaded. You can convert it to ASCII .txt using the 'Convert .dat → .txt…' button.")
-			self.ray_count_label.setText("Ray count: N/A (Binary file)")
-			return
 
 		try:
 			with open(fname, 'r') as f:
@@ -722,42 +755,8 @@ class RaySubsamplerWindow(QMainWindow):
 			QMessageBox.critical(self, "Error", f"Failed to scan file: {e}")
 			self.ray_count = None
 
-	def on_convert(self):
-		if not self.input_file or not self.input_file.lower().endswith('.dat'):
-			QMessageBox.information(self, "Info", "Load a .dat file first to convert.")
-			return
-
-		outfile, _ = QFileDialog.getSaveFileName(self, "Save ASCII .txt", os.getcwd(), "Text files (*.txt)")
-		if not outfile:
-			return
-		if not outfile.lower().endswith('.txt'):
-			outfile = f"{outfile}.txt"
-
-		self.btn_convert.setEnabled(False)
-		self.btn_process.setEnabled(False)
-		self.progress.setValue(0)
-		self.status_label.setText("")
-
-		# Use a dedicated thread for conversion to avoid cross-thread reuse
-		self.convert_thread = QThread()
-		self.convert_worker = DatToTxtWorker(self.input_file, outfile)
-		self.convert_worker.moveToThread(self.convert_thread)
-		self.convert_thread.started.connect(self.convert_worker.run)
-		self.convert_worker.progress_changed.connect(self.progress.setValue)
-		self.convert_worker.status_changed.connect(self.status_label.setText)
-		self.convert_worker.finished.connect(self._after_convert_success)
-		self.convert_worker.error.connect(self.on_error)
-		# Clean shutdown and cleanup
-		self.convert_worker.finished.connect(self.convert_thread.quit)
-		self.convert_worker.error.connect(self.convert_thread.quit)
-		self.convert_thread.finished.connect(self.convert_worker.deleteLater)
-		self.convert_thread.finished.connect(self.convert_thread.deleteLater)
-		self.convert_thread.finished.connect(lambda: (self.btn_convert.setEnabled(True), self.btn_process.setEnabled(True)))
-		self.convert_thread.start()
-
 	def _after_convert_success(self, path):
-		QMessageBox.information(self, "Converted", f".dat converted to ASCII:\n{path}\n\nIt is now loaded for subsampling.")
-		# Load the new txt as input and rescan
+		# Load the converted txt as input and rescan
 		self.input_file = path
 		self.file_label.setText(os.path.basename(path))
 		try:
@@ -768,8 +767,9 @@ class RaySubsamplerWindow(QMainWindow):
 			ray_lines = [line for line in lines[header_index + 1:] if len(line.split()) == 7]
 			self.ray_count = len(ray_lines)
 			self.ray_count_label.setText(f"Ray count: {self.ray_count}")
+			QMessageBox.information(self, "Conversion Complete", f"File converted and loaded successfully!\n\nRay count: {self.ray_count}")
 		except Exception as e:
-			QMessageBox.warning(self, "Warning", f"Loaded converted file, but scan failed: {e}")
+			QMessageBox.warning(self, "Warning", f"File converted but scan failed: {e}")
 
 	def on_process(self):
 		if not self.input_file or not os.path.exists(self.input_file):
